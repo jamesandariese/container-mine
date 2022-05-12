@@ -1,0 +1,77 @@
+FROM debian:11
+
+
+# Install packages.
+#
+# Don't clear the cache unless you are planning to install exactly the right
+# packages here and never again.  If you will be running apt-get update
+# immediately upon boot, just leave it and save the world a little
+# wire-warming.
+#
+# Another point of difference between containers you'd use as a container and
+# containers you'd use as a VM: if you plan to use differencing disks, and plan
+# on keeping the base disk up to date by updating it regularly and replacing
+# your VMs which extend from it, you will then also want your base VM disk to
+# have the sum or a superset of all packages that will run on your instances.
+#
+# And one final point: individual layer size doesn't matter.  Don't try to run
+# everything in one RUN.  It makes it hard to read and cache for no reason
+# since we export a flat image at the end.
+#
+# TL;DR: this won't be used in docker -- do things that make sense for VMs.
+#
+RUN apt-get -q update
+RUN apt-get install -yq linux-image-cloud-amd64
+RUN apt-get install -yq systemd-sysv
+RUN apt-get install -yq dbus-user-session
+RUN apt-get install -yq openssh-server openssh-client
+# ^ required for a working system.
+
+# v required for getting work done
+RUN apt-get install -yq gnupg2
+RUN apt-get install -yq curl
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
+RUN echo "deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-debian-bullseye-prod bullseye main" > /etc/apt/sources.list.d/microsoft.list
+RUN apt-get -q update
+RUN apt install -yq powershell
+RUN apt install -yq gss-ntlmssp
+RUN pwsh -c 'Set-PSRepository -Name psgallery -InstallationPolicy Trusted;install-module -scope allusers pswsman;install-wsman'
+
+# v required for my sanity.
+RUN apt-get install -yq moreutils
+RUN apt-get install -yq man 
+RUN apt-get install -yq socat 
+RUN apt-get install -yq netcat-openbsd
+RUN apt-get install -yq iproute2
+RUN apt-get install -yq bind9-dnsutils
+RUN apt-get install -yq iputils-ping
+RUN apt-get install -yq bash
+RUN apt-get install -yq neovim
+RUN apt-get install -yq strace
+RUN apt-get install -yq less
+RUN apt-get install -yq hyperv-daemons
+
+RUN mkdir -p /etc/systemd/network
+RUN systemctl enable systemd-networkd
+RUN systemctl enable systemd-resolved
+RUN systemctl enable ssh
+RUN systemctl enable dbus
+RUN systemctl enable getty@ttyS0
+
+RUN echo '/dev/sda1 / auto defaults 0 1' > /etc/fstab
+RUN printf '%s\n'                                   \
+      '[Match]'                                     \
+      'Name=*'                                      \
+      ''                                            \
+      '[Network]'                                   \
+      'DHCP=yes'                                    \
+      ''                                            \
+      '[DHCPv4]'                                    \
+      'ClientIdentifier=mac'                        \
+    > /etc/systemd/network/99-dhcp.network
+RUN printf '%s\n' root root | passwd
+
+RUN mkdir -p /root/.ssh
+COPY root_authorized_keys /root/.ssh/authorized_keys
+RUN chown -R root:root /root
+RUN chmod 600 /root/.ssh/authorized_keys

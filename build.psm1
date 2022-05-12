@@ -1,3 +1,11 @@
+function New-LinuxVHDXDockerfile()
+{
+    param(
+        [string] $Dockerfile = "Dockerfile"
+    )
+    Copy-Item $PSScriptRoot\Dockerfile.example $Dockerfile
+}
+
 function New-LinuxVHDX()
 {
     param(
@@ -27,38 +35,28 @@ function New-LinuxVHDX()
         } catch {}
     }
 
-    $block = {
-        docker build -t guestfs -f $PSScriptRoot\Dockerfile.appliance $PSScriptRoot 2>&1
-
-
-
-        docker build -f $dockerctx\$Dockerfile --iidfile $tmp\iid.txt $dockerctx 2>&1
-        $wip = (docker create (Get-Content $tmp\iid.txt))
-        docker export $wip -o $tmp\wip.tar 2>&1
-        docker rm $wip 2>&1
-        docker run --device /dev/kvm -v "${PSScriptRoot}:/src" -v "${tmp}:/work" -w /work -ti guestfs bash /src/builddisk.sh
-        $PSScriptRoot
-        dir $PSScriptRoot
-        $tmp
-        dir $tmp
-        docker run --device /dev/kvm -v "${PSScriptRoot}:/src" -v "${tmp}:/work" -w /work -ti guestfs qemu-img convert wip.qcow2 -O vpc wip.vhd
-        if (Test-Path ${OutputPath}\${Name}.VHDX) {
-            Remove-Item -Force "${OutputPath}\${Name}.VHDX"
-        }
-        Convert-VHD "${tmp}\wip.vhd" "${OutputPath}\${Name}.VHDX" -VHDType Dynamic
-    }
-
     try {
-        if ($ComputerName -ne "") {
-            Invoke-Command -ComputerName $ComputerName -ScriptBlock $block
-        } else {
-            &$block
-        }
+	&{
+            docker build -f $PSScriptRoot\Dockerfile.appliance --progress plain --iidfile $tmp\guestfs-iid.txt $PSScriptRoot
+            docker build -f $dockerctx\$Dockerfile --progress plain --iidfile $tmp\iid.txt $dockerctx
+
+            $guestfs = (get-content $tmp\guestfs-iid.txt)
+            $wip = (docker create (Get-Content $tmp\iid.txt)) 2>&1
+            
+	    docker export $wip -o $tmp\wip.tar 2>&1
+            docker rm $wip 2>&1
+	    
+            docker run --device /dev/kvm -v "${PSScriptRoot}:/src" -v "${tmp}:/work" -w /work -ti $guestfs bash /src/builddisk.sh
+            docker run --device /dev/kvm -v "${PSScriptRoot}:/src" -v "${tmp}:/work" -w /work -ti $guestfs qemu-img convert wip.qcow2 -O vpc wip.vhd
+            if (Test-Path ${OutputPath}\${Name}.VHDX) {
+                Remove-Item -Force "${OutputPath}\${Name}.VHDX"
+            }
+        } | foreach-object {"$_"}| write-host
+
+        Convert-VHD "${tmp}\wip.vhd" "${OutputPath}\${Name}.VHDX" -VHDType Dynamic -Passthru
     } finally {
         Remove-Item -Recurse $tmp
         Set-Location $origloc
     }
 }
 
-write-output $PSScriptRoot
-write-output "hello"
