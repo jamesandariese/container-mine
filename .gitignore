@@ -1,0 +1,5 @@
+root_authorized_keys
+*~
+\#*#
+.*
+!.git?*
