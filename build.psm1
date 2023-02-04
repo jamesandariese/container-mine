@@ -11,19 +11,24 @@ function New-LinuxVHDX()
     param(
         [Parameter()][AllowEmptyString()][string] $ComputerName,
         [Parameter()][AllowEmptyString()][string] $DockerContext,
-        [string] $Dockerfile = "Dockerfile",
+        [Parameter()][AllowEmptyString()][string] $Dockerfile,
         [Parameter()][string] $OutputPath = ".",
         [Parameter()][string] $Name = "linux"
     )
     $origloc = Get-Location
-    
+ 
     $dockerctx = $DockerContext
     if ($dockerctx -eq "") {
-        $dockerctx = "."
+        $dockerctx = $origloc
     }
 
-    if (-not (test-path -pathtype leaf $dockerctx\$Dockerfile)) {
-        Write-Error "$dockerctx\$Dockerfile does not exist.  cannot convert it into a VM!"
+    $dockerfile = $Dockerfile
+    if ($dockerfile -eq "") {
+	$dockerfile = "${dockerctx}\Dockerfile"
+    }
+
+    if (-not (test-path -pathtype leaf $dockerfile)) {
+        Write-Error "$dockerfile does not exist.  cannot convert it into a VM!"
         return
     }
 
@@ -35,25 +40,23 @@ function New-LinuxVHDX()
         } catch {}
     }
 
+    $buildId = (New-Guid).Guid
+
     try {
 	&{
-            docker build -f $PSScriptRoot\Dockerfile.appliance --progress plain --iidfile $tmp\guestfs-iid.txt $PSScriptRoot
-            docker build -f $dockerctx\$Dockerfile --progress plain --iidfile $tmp\iid.txt $dockerctx
+            $cmimage="container-mine-base:$buildId"
+            $bdimage="container-mine-build:$buildId"
+            $output="container-mine-$buildId.vhdx"
 
-            $guestfs = (get-content $tmp\guestfs-iid.txt)
-            $wip = (docker create (Get-Content $tmp\iid.txt)) 2>&1
-            
-	    docker export $wip -o $tmp\wip.tar 2>&1
-            docker rm $wip 2>&1
-	    
-            docker run --device /dev/kvm -v "${PSScriptRoot}:/src" -v "${tmp}:/work" -w /work -ti $guestfs bash /src/builddisk.sh
-            docker run --device /dev/kvm -v "${PSScriptRoot}:/src" -v "${tmp}:/work" -w /work -ti $guestfs qemu-img convert wip.qcow2 -O vpc wip.vhd
+            docker build -f $dockerfile --progress plain -t $cmimage $dockerctx
+	    docker build -f $PSScriptRoot\Dockerfile.builder --build-arg "BASE_IMAGE=$cmimage" --progress plain -t $bdimage $PSScriptRoot
+
+            $wip = (docker create $bdimage) 2>&1
             if (Test-Path ${OutputPath}\${Name}.VHDX) {
                 Remove-Item -Force "${OutputPath}\${Name}.VHDX"
             }
-        } | foreach-object {"$_"}| write-host
-
-        Convert-VHD "${tmp}\wip.vhd" "${OutputPath}\${Name}.VHDX" -VHDType Dynamic -Passthru
+	    docker cp ${wip}:/mkimage.vhdx ${OutputPath}/${Name}.VHDX
+        } | foreach-object {"$_"} | write-host
     } finally {
         Remove-Item -Recurse $tmp
         Set-Location $origloc
