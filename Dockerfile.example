@@ -1,5 +1,5 @@
 FROM debian:11
-
+ARG ROOT_AUTHORIZED_KEYS=""
 
 # Install packages.
 #
@@ -71,7 +71,10 @@ RUN printf '%s\n'                                   \
     > /etc/systemd/network/99-dhcp.network
 RUN printf '%s\n' root root | passwd
 
+# Configuration of root authorized keys file based on build arg.
+# Use with --build-arg ROOT_AUTHORIZED_KEYS="ssh-ed25519 AAAA..."
+# Also accepts backslash encoded escape chars (echo -e style)
 RUN mkdir -p /root/.ssh
-COPY root_authorized_keys /root/.ssh/authorized_keys
+RUN printf '%b\n' "${ROOT_AUTHORIZED_KEYS}" > /root/.ssh/authorized_keys
 RUN chown -R root:root /root
 RUN chmod 600 /root/.ssh/authorized_keys

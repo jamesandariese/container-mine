@@ -12,6 +12,7 @@ function New-LinuxVHDX()
         [Parameter()][AllowEmptyString()][string] $ComputerName,
         [Parameter()][AllowEmptyString()][string] $DockerContext,
         [Parameter()][AllowEmptyString()][string] $Dockerfile,
+        [Parameter()][AllowEmptyString()][string] $RootAuthorizedKeys,
         [Parameter()][string] $OutputPath = ".",
         [Parameter()][string] $Name = "linux"
     )
@@ -48,8 +49,8 @@ function New-LinuxVHDX()
             $bdimage="container-mine-build:$buildId"
             $output="container-mine-$buildId.vhdx"
 
-            docker build -f $dockerfile --progress plain -t $cmimage $dockerctx
-	    docker build -f $PSScriptRoot\Dockerfile.builder --build-arg "BASE_IMAGE=$cmimage" --progress plain -t $bdimage $PSScriptRoot
+            docker build --build-arg "ROOT_AUTHORIZED_KEYS=${RootAuthorizedKeys}" -f $dockerfile --progress plain -t $cmimage $dockerctx
+	        docker build -f $PSScriptRoot\Dockerfile.builder --build-arg "BASE_IMAGE=$cmimage" --progress plain -t $bdimage $PSScriptRoot
 
             $wip = (docker create $bdimage) 2>&1
             if (Test-Path ${OutputPath}\${Name}.VHDX) {
