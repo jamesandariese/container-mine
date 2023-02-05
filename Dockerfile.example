@@ -18,16 +18,23 @@ ARG ROOT_AUTHORIZED_KEYS=""
 # everything in one RUN.  It makes it hard to read and cache for no reason
 # since we export a flat image at the end.
 #
+# Caveat: you need to occasionally clear your cache to cause apt-get update to
+#         run again.  This is still preferable to updating and installing
+#         _everything_ _every_ time, just to be clear.
+#
 # TL;DR: this won't be used in docker -- do things that make sense for VMs.
 #
+
+# Packages required for a working system
 RUN apt-get -q update
 RUN apt-get install -yq linux-image-cloud-amd64
 RUN apt-get install -yq systemd-sysv
 RUN apt-get install -yq dbus-user-session
 RUN apt-get install -yq openssh-server openssh-client
-# ^ required for a working system.
+RUN apt-get install -yq e2fsprogs
+# End Packages
 
-# v required for getting work done
+# Packages for getting work done
 RUN apt-get install -yq gnupg2
 RUN apt-get install -yq curl
 RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
@@ -36,8 +43,9 @@ RUN apt-get -q update
 RUN apt install -yq powershell
 RUN apt install -yq gss-ntlmssp
 RUN pwsh -c 'Set-PSRepository -Name psgallery -InstallationPolicy Trusted;install-module -scope allusers pswsman;install-wsman'
+# End Packages
 
-# v required for my sanity.
+# Packages for my sanity
 RUN apt-get install -yq moreutils
 RUN apt-get install -yq man 
 RUN apt-get install -yq socat 
@@ -50,15 +58,79 @@ RUN apt-get install -yq neovim
 RUN apt-get install -yq strace
 RUN apt-get install -yq less
 RUN apt-get install -yq hyperv-daemons
+RUN apt-get install -yq sudo && sed -i -E -e '/^(%sudo|root)/ s/ALL$/NOPASSWD: ALL/' /etc/sudoers
+# End Packages
 
+# Service to ensure the resolved stub file is symlinked.  This can't be done directly
+# because docker mounts a resolv.conf while controlling the build container.
+RUN printf '%s\n'                                                                         \
+      '[Unit]'                                                                            \
+      'Description=Setup systemd-resolved stub'                                           \
+      'Before=systemd-resolved.service'                                                   \
+      ''                                                                                  \
+      '[Service]'                                                                         \
+      'ExecStart=/bin/ln -bsf /var/run/systemd/resolve/stub-resolv.conf /etc/resolv.conf' \
+      'Type=oneshot'                                                                      \
+      ''                                                                                  \
+      '[Install]'                                                                         \
+      'RequiredBy=systemd-resolved.service'                                               \
+    > /lib/systemd/system/systemd-resolved-stub-installer.service 
+RUN systemctl enable systemd-resolved-stub-installer.service
+# End Service
+
+# Service to create a hostname from /boot or randomly if one doesn't exist yet.
+RUN printf '%s\n'                                                                                         \
+      '#!/bin/bash'                                                                                       \
+      'if [ -e /boot/hostname ];then'                                                                     \
+      '    echo "found /boot/hostname override file."'                                                    \
+      '    hostnamectl set-hostname $(cat /boot/hostname)'                                                \
+      '    exit 0'                                                                                        \
+      'fi'                                                                                                \
+      ''                                                                                                  \
+      'if [ -e /etc/hostname ];then'                                                                      \
+      '    echo "hostname file already exists.  skipping setup."'                                         \
+      '    exit 0'                                                                                        \
+      'fi'                                                                                                \
+      ''                                                                                                  \
+      'SLUGS=$(dd if=/dev/random bs=64 count=1 | base64 | tr A-Z a-z | grep -Eo "[0-9a-z]{3}" | head -3)' \
+      'hostnamectl set-hostname $(printf %s-%s-%s $SLUGS)'                                                \
+    > /usr/sbin/configure-hostname
+
+RUN chmod 755 /usr/sbin/configure-hostname
+
+RUN printf '%s\n'                               \
+      '[Unit]'                                  \
+      'Description=Ensure machine has hostname' \
+      'Before=systemd-networkd.service'         \
+      ''                                        \
+      '[Service]'                               \
+      'ExecStart=/usr/sbin/configure-hostname'  \
+      'Type=oneshot'                            \
+      ''                                        \
+      '[Install]'                               \
+      'WantedBy=multi-user.target'              \
+    > /lib/systemd/system/ensure-machine-hostname.service
+RUN systemctl enable ensure-machine-hostname.service
+# End Service
+
+# Service to create ssh host keys if they're missing
+RUN printf '%s\n'                                                               \
+      '[Unit]'                                                                  \
+      'Description=Ensure machine has ssh keys'                                 \
+      'Before=ssh.service'                                                      \
+      ''                                                                        \
+      '[Service]'                                                               \
+      'ExecStart=/usr/sbin/dpkg-reconfigure openssh-server --f noninteractive'  \
+      'Type=oneshot'                                                            \
+      ''                                                                        \
+      '[Install]'                                                               \
+      'RequiredBy=ssh.service'                                                  \
+    > /lib/systemd/system/ensure-ssh-hostkeys.service
+RUN systemctl enable ensure-ssh-hostkeys.service
+# End Service
+
+# Configuration for otherwise-unconfigured network interfaces
 RUN mkdir -p /etc/systemd/network
-RUN systemctl enable systemd-networkd
-RUN systemctl enable systemd-resolved
-RUN systemctl enable ssh
-RUN systemctl enable dbus
-RUN systemctl enable getty@ttyS0
-
-RUN echo '/dev/sda1 / auto defaults 0 1' > /etc/fstab
 RUN printf '%s\n'                                   \
       '[Match]'                                     \
       'Name=*'                                      \
@@ -69,6 +141,17 @@ RUN printf '%s\n'                                   \
       '[DHCPv4]'                                    \
       'ClientIdentifier=mac'                        \
     > /etc/systemd/network/99-dhcp.network
+# End Configuration
+
+# Enable services
+RUN systemctl enable systemd-networkd
+RUN systemctl enable systemd-resolved
+RUN systemctl enable ssh
+RUN systemctl enable dbus
+RUN systemctl enable getty@ttyS0
+# End Enable
+
+# Set root password to "root"
 RUN printf '%s\n' root root | passwd
 
 # Configuration of root authorized keys file based on build arg.
@@ -78,3 +161,14 @@ RUN mkdir -p /root/.ssh
 RUN printf '%b\n' "${ROOT_AUTHORIZED_KEYS}" > /root/.ssh/authorized_keys
 RUN chown -R root:root /root
 RUN chmod 600 /root/.ssh/authorized_keys
+# End Configuration
+
+# sysprep time
+RUN rm -f \
+    /etc/machine-id \
+    /var/lib/dbus/machine-id \
+    /etc/ssh/ssh_host_*_key* \
+    /var/lib/systemd/random-seed \
+    /var/lib/systemd/credential.secret \
+    /etc/hostname \
+    /.dockerenv

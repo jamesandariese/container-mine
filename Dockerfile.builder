@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -yq \
 
 COPY --from=build / /mkimage
 
+COPY grub.cfg /mkimage.grub.cfg
 COPY mkimage.sh /
+RUN chmod +x /mkimage.sh
 RUN /mkimage.sh
-
