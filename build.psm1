@@ -44,7 +44,7 @@ function New-LinuxVHDX()
     $buildId = (New-Guid).Guid
 
     try {
-	&{
+	    &{
             $cmimage="container-mine-base:$buildId"
             $bdimage="container-mine-build:$buildId"
             $output="container-mine-$buildId.vhdx"
@@ -56,7 +56,10 @@ function New-LinuxVHDX()
             if (Test-Path ${OutputPath}\${Name}.VHDX) {
                 Remove-Item -Force "${OutputPath}\${Name}.VHDX"
             }
-	    docker cp ${wip}:/mkimage.vhdx ${OutputPath}/${Name}.VHDX
+	        docker cp "${wip}:/mkimage.vhdx" ${OutputPath}/${Name}.VHDX
+            docker rm "${wip}"
+            docker rmi "$bdimage"
+            docker rmi "$cmimage"
         } | foreach-object {"$_"} | write-host
     } finally {
         Remove-Item -Recurse $tmp
