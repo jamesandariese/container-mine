@@ -12,7 +12,7 @@
 RootModule = 'build.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.0.3'
+ModuleVersion = '0.0.4'
 
 # Supported PSEditions
 # CompatiblePSEditions = @()
@@ -98,7 +98,7 @@ PrivateData = @{
         # Tags = @()
 
         # A URL to the license for this module.
-        # LicenseUri = ''
+        LicenseUri = 'https://raw.githubusercontent.com/jamesandariese/container-mine/main/LICENSE'
 
         # A URL to the main website for this project.
         ProjectUri = 'https://github.com/jamesandariese/container-mine'
