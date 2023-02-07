@@ -11,9 +11,12 @@ RUN apt-get update && apt-get install -yq \
   mtools \
   shim-signed shim-unsigned
 
-COPY --from=build / /mkimage
-
 COPY grub.cfg /mkimage.grub.cfg
+
+ARG BASE_IMAGE
+RUN echo "Cache bust value (base image tag): ${BASE_IMAGE}"
+
+COPY --from=build / /mkimage
 COPY mkimage.sh /
 RUN chmod +x /mkimage.sh
 RUN /mkimage.sh
